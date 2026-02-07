@@ -1,194 +1,151 @@
+<!DOCTYPE html>
+<html>
+<body style="margin:0; overflow:hidden; background:#000; font-family: monospace;">
 <canvas id="c"></canvas>
 <script>
-x = c.getContext('2d')
-w = c.width = innerWidth
-h = c.height = innerHeight
+const x = c.getContext("2d");
+let w = c.width = innerWidth, h = c.height = innerHeight;
+let t = 0, dist = 0, speed = 25, gameOver = false, keys = {}, objects = [], stars = [];
 
-t = 0
-level = 1
+let hiScore = localStorage.getItem("roadHi") || 0;
+for(let i=0; i<120; i++) stars.push({x: Math.random()*w, y: Math.random()*h*0.5, s: Math.random()*2});
 
-// --- PLAYER ---
-p = { x: 0, y: 0, d: 1, bullet: null, width: 12, height: 18, aimAngle: 0 }
-
-// --- AI ---
-ai = { x: 0, y: 0, d: -1, speed: 2, bullet: null, width: 12, height: 18 }
-
-// --- CATACOMBS STYLE MAP (tunnels/platforms) ---
-map = [
-    {x: 0, y: h-20, w: w, h: 20},           // floor
-    {x: 50, y: h-100, w: 200, h: 15},       // left corridor
-    {x: 300, y: h-180, w: 150, h: 15},      // upper tunnel
-    {x: 500, y: h-100, w: 200, h: 15},      // center corridor
-    {x: 750, y: h-160, w: 120, h: 15},      // right upper
-    {x: 900, y: h-80, w: 80, h: 15},        // right lower
-    {x: 650, y: h-220, w: 100, h: 15},      // high platform
-]
-
-// --- INPUT ---
-keys = {}
-window.onkeydown = e => keys[e.key] = true
-window.onkeyup = e => keys[e.key] = false
-
-// --- DRAW ---
-function drawPlayer(px, py, d) {
-    x.beginPath()
-    x.arc(px, py - 8, 4, 0, Math.PI*2)
-    x.moveTo(px, py - 4)
-    x.lineTo(px, py + 10)
-    x.lineTo(px - 6*d, py + 18)
-    x.moveTo(px, py + 10)
-    x.lineTo(px + 6*d, py + 18)
-    // gun tilt
-    x.moveTo(px, py + 2)
-    x.lineTo(px + 10*Math.cos(p.aimAngle), py + 4 + 10*Math.sin(p.aimAngle))
-    x.stroke()
-}
-
-function drawBullet(b) {
-    if(!b) return
-    x.fillRect(b.x-2, b.y-2, 4, 4)
-}
-
-function drawMap() {
-    x.fillStyle = "grey"
-    for(let obj of map) x.fillRect(obj.x, obj.y, obj.w, obj.h)
-}
-
-// --- COLLISION ---
-function collide(entity, nextX, nextY) {
-    // walls
-    if(nextX < 0 || nextX + entity.width > w || nextY < 0 || nextY + entity.height > h) return true
-    // map platforms
-    for(let obj of map) {
-        if(
-            nextX + entity.width > obj.x &&
-            nextX < obj.x + obj.w &&
-            nextY + entity.height > obj.y &&
-            nextY < obj.y + obj.h
-        ) return true
+const spawnWorld = () => {
+    if (gameOver) return;
+    if (t % 15 === 0) objects.push({ type: 'tree', x: Math.random() > 0.5 ? 750 : -750, z: 5000 });
+    if (t % 45 === 0) {
+        const lanes = [-220, 0, 220];
+        objects.push({ 
+            type: 'car', 
+            x: lanes[Math.floor(Math.random()*lanes.length)], 
+            z: 5000, 
+            color: `hsl(${Math.random()*360}, 50%, 40%)` // Opponents are darker/duller
+        });
     }
-    return false
-}
+};
 
-// --- BULLETS ---
-function updateBullet(b, target) {
-    if(!b) return false
-    b.x += b.dx
-    b.y += b.dy
-    for(let obj of map) {
-        if(b.x > obj.x && b.x < obj.x + obj.w && b.y > obj.y && b.y < obj.y + obj.h) return null
+// PLAYER CAR: Sleek Sports Car with Spoiler and Neon
+const drawPlayerCar = (x2d, y2d, scale) => {
+    let sw = 110 * scale, sh = 40 * scale;
+    x.save(); x.translate(x2d, y2d);
+    
+    // Cyan Underglow
+    x.shadowBlur = 30; x.shadowColor = "#0ff";
+    x.fillStyle = "#0ff"; x.globalAlpha = 0.3;
+    x.fillRect(-sw, 0, sw*2, 10);
+    x.globalAlpha = 1;
+
+    // Body
+    x.fillStyle = "#111"; x.fillRect(-sw, -sh, sw*2, sh); 
+    
+    // Spoiler
+    x.fillStyle = "#0ff"; x.fillRect(-sw, -sh-15, sw*0.2, 15);
+    x.fillRect(sw*0.8, -sh-15, sw*0.2, 15);
+    x.fillRect(-sw, -sh-20, sw*2, 5);
+
+    // Cyan Cabin
+    x.fillStyle = "#0cc"; x.beginPath();
+    x.moveTo(-sw*0.7, -sh); x.lineTo(sw*0.7, -sh);
+    x.lineTo(sw*0.3, -sh*2); x.lineTo(-sw*0.3, -sh*2); x.fill();
+
+    // Red Tail Lights (Bloom)
+    x.shadowColor = "#f00"; x.shadowBlur = 20;
+    x.fillStyle = "#ff0000";
+    x.fillRect(-sw*0.9, -sh*0.8, sw*0.25, sh*0.3);
+    x.fillRect(sw*0.65, -sh*0.8, sw*0.25, sh*0.3);
+    x.restore();
+};
+
+// OPPONENT CAR: Boxy Sedan / Commuter
+const drawEnemyCar = (x2d, y2d, scale, color) => {
+    let sw = 90 * scale, sh = 50 * scale;
+    x.save(); x.translate(x2d, y2d);
+    x.shadowBlur = 10; x.shadowColor = color;
+    
+    // Simple Boxy Body
+    x.fillStyle = "#222"; x.fillRect(-sw, -sh, sw*2, sh);
+    
+    // High Roof
+    x.fillStyle = color; x.fillRect(-sw*0.6, -sh*1.8, sw*1.2, sh*0.8);
+    
+    // White Headlights (Back view, so they look like white markers)
+    x.shadowBlur = 5; x.fillStyle = "#ddd";
+    x.fillRect(-sw*0.8, -sh*0.7, sw*0.2, sh*0.2);
+    x.fillRect(sw*0.6, -sh*0.7, sw*0.2, sh*0.2);
+    x.restore();
+};
+
+const drawTree = (x2d, y2d, scale) => {
+    let ts = 180 * scale;
+    x.fillStyle = "#0a0500"; x.fillRect(x2d - ts/8, y2d - ts, ts/4, ts);
+    x.fillStyle = "#041a04"; x.beginPath();
+    x.moveTo(x2d - ts, y2d - ts*0.8); x.lineTo(x2d + ts, y2d - ts*0.8); x.lineTo(x2d, y2d - ts*3); x.fill();
+};
+
+const loop = () => {
+    x.fillStyle = "#000208"; x.fillRect(0, 0, w, h);
+    x.fillStyle = "#fff"; stars.forEach(s => x.fillRect(s.x, s.y, s.s, s.s));
+
+    let horizon = h * 0.52;
+    x.fillStyle = "#0d0d0d"; // Road
+    x.beginPath(); x.moveTo(w/2-30, horizon); x.lineTo(w/2+30, horizon); x.lineTo(w*2, h); x.lineTo(-w, h); x.fill();
+
+    // Side Rails
+    x.strokeStyle = "#00f"; x.lineWidth = 2;
+    for(let i=0; i<15; i++) {
+        let z = ((t * speed + i * 400) % 4000);
+        let scale = 400 / (400 + (4000 - z));
+        let y = horizon + (h - horizon) * scale;
+        x.globalAlpha = scale;
+        x.strokeRect(w/2 - 500 * scale, y, 1000 * scale, 1);
     }
-    if(Math.abs(b.x - target.x) < 10 && Math.abs(b.y - target.y) < 10) return true
-    if(b.x < 0 || b.x > w || b.y < 0 || b.y > h) return null
-    return false
-}
+    x.globalAlpha = 1;
 
-// --- AI SHOOTING ---
-function aiShoot() {
-    if(!ai.bullet) {
-        let dx = p.x - ai.x
-        let dy = p.y - ai.y
-        let dist = Math.hypot(dx, dy)
-        let speed = 6
-        ai.bullet = { x: ai.x + 10*ai.d, y: ai.y + 4, dx: dx/dist*speed, dy: dy/dist*speed }
-    }
-}
-
-// --- RESET ---
-function resetPositions(winner) {
-    if(winner === 'Player') level++
-    else if(winner === 'AI') level = Math.max(1, level-1)
-
-    let platforms = map.filter(obj => obj.h < 50)
-    let pPlat = platforms[Math.floor(Math.random() * platforms.length)]
-    let aiPlat = platforms[Math.floor(Math.random() * platforms.length)]
-
-    p.x = pPlat.x + 20
-    p.y = pPlat.y - p.height
-    p.d = 1
-    p.bullet = null
-    p.aimAngle = 0
-
-    ai.x = aiPlat.x + 20
-    ai.y = aiPlat.y - ai.height
-    ai.d = -1
-    ai.bullet = null
-    ai.speed = 2 + level*0.5
-}
-
-// --- AIM UPDATE ---
-function updateAim() {
-    if(keys['w'] && keys['a']) p.aimAngle = -3*Math.PI/4
-    else if(keys['w'] && keys['d']) p.aimAngle = -Math.PI/4
-    else if(keys['s'] && keys['a']) p.aimAngle = 3*Math.PI/4
-    else if(keys['s'] && keys['d']) p.aimAngle = Math.PI/4
-    else if(keys['w']) p.aimAngle = -Math.PI/2
-    else if(keys['s']) p.aimAngle = Math.PI/2
-    else if(keys['a']) p.aimAngle = Math.PI
-    else if(keys['d']) p.aimAngle = 0
-}
-
-// --- UPDATE ---
-function update() {
-    updateAim()
-
-    // PLAYER MOVEMENT
-    let nextX = p.x + (keys['ArrowRight'] ? 4 : keys['ArrowLeft'] ? -4 : 0)
-    let nextY = p.y + (keys['ArrowUp'] ? -4 : keys['ArrowDown'] ? 4 : 0)
-    if(!collide(p, nextX, p.y)) p.x = nextX
-    if(!collide(p, p.x, nextY)) p.y = nextY
-
-    // AI MOVEMENT
-    let aiNextX = ai.x + (ai.x < p.x ? ai.speed : -ai.speed)
-    let aiNextY = ai.y + (ai.y < p.y ? 1 : -1)
-    if(!collide(ai, aiNextX, ai.y)) ai.x = aiNextX
-    if(!collide(ai, ai.x, aiNextY)) ai.y = aiNextY
-
-    // AI SHOOT
-    if(Math.random() < 0.01 * level) aiShoot()
-
-    // --- AUTOMATIC PLAYER SHOOT ---
-    if((keys['w'] || keys['a'] || keys['s'] || keys['d']) && !p.bullet && t % 15 === 0) {
-        let speed = 6
-        p.bullet = { x: p.x + 10*p.d, y: p.y + 4, dx: speed*Math.cos(p.aimAngle), dy: speed*Math.sin(p.aimAngle) }
+    if (!gameOver) {
+        if (keys.a || keys.ArrowLeft) dist -= 10;
+        if (keys.d || keys.ArrowRight) dist += 10;
+        t++; spawnWorld();
+        speed += 0.002;
     }
 
-    // BULLETS HIT CHECK
-    if(p.bullet) {
-        let hit = updateBullet(p.bullet, ai)
-        if(hit === true) { alert("Player wins!"); resetPositions('Player'); return }
-        else if(hit === null) p.bullet = null
+    objects.sort((a, b) => b.z - a.z);
+    objects.forEach((obj, i) => {
+        obj.z -= speed;
+        let scale = 400 / (400 + obj.z);
+        let x2d = (obj.x - dist) * scale + w/2;
+        let y2d = horizon + (h - horizon) * scale;
+
+        if (obj.z < -400) { objects.splice(i, 1); return; }
+        
+        if (obj.type === 'tree') drawTree(x2d, y2d, scale);
+        else {
+            if (obj.z < 100 && obj.z > -50 && Math.abs(obj.x - dist) < 140) {
+                gameOver = true;
+                if (t > hiScore) { hiScore = t; localStorage.setItem("roadHi", hiScore); }
+            }
+            if (obj.z > 0) drawEnemyCar(x2d, y2d, scale, obj.color);
+        }
+    });
+
+    drawPlayerCar(w/2, h * 0.9, 1);
+
+    // UI
+    x.shadowBlur = 10; x.shadowColor = "#0ff"; x.fillStyle = "#0ff"; x.font = "bold 20px monospace";
+    x.fillText(`SCORE: ${t}`, 30, 40);
+    x.fillStyle = "#f0f"; x.fillText(`BEST:  ${hiScore}`, 30, 70);
+
+    if (gameOver) {
+        x.fillStyle = "rgba(0,0,0,0.85)"; x.fillRect(0,0,w,h);
+        x.fillStyle = "#fff"; x.textAlign = "center";
+        x.font = "50px monospace"; x.fillText(t >= hiScore && t > 0 ? "NEW RECORD!" : "WRECKED", w/2, h/2);
+        x.fillText("PRESS R TO REBOOT", w/2, h/2+80);
     }
-    if(ai.bullet) {
-        let hit = updateBullet(ai.bullet, p)
-        if(hit === true) { alert("AI wins!"); resetPositions('AI'); return }
-        else if(hit === null) ai.bullet = null
-    }
-}
+    requestAnimationFrame(loop);
+};
 
-// --- DRAW ---
-function draw() {
-    drawMap()
-    drawPlayer(p.x, p.y, p.d)
-    drawPlayer(ai.x, ai.y, ai.d)
-    drawBullet(p.bullet)
-    drawBullet(ai.bullet)
-
-    x.fillStyle = "black"
-    x.font = "20px Arial"
-    x.fillText("Level: " + level, 20, 30)
-}
-
-// --- LOOP ---
-function loop() {
-    x.clearRect(0, 0, w, h)
-    update()
-    draw()
-    t++
-    requestAnimationFrame(loop)
-}
-
-// --- START GAME ---
-resetPositions()
-loop()
+onkeydown = e => { keys[e.key] = 1; if(e.key=='r' && gameOver) location.reload(); };
+onkeyup = e => keys[e.key] = 0;
+loop();
 </script>
+</body>
+</html>
