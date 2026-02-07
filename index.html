@@ -1,0 +1,194 @@
+<canvas id="c"></canvas>
+<script>
+x = c.getContext('2d')
+w = c.width = innerWidth
+h = c.height = innerHeight
+
+t = 0
+level = 1
+
+// --- PLAYER ---
+p = { x: 0, y: 0, d: 1, bullet: null, width: 12, height: 18, aimAngle: 0 }
+
+// --- AI ---
+ai = { x: 0, y: 0, d: -1, speed: 2, bullet: null, width: 12, height: 18 }
+
+// --- CATACOMBS STYLE MAP (tunnels/platforms) ---
+map = [
+    {x: 0, y: h-20, w: w, h: 20},           // floor
+    {x: 50, y: h-100, w: 200, h: 15},       // left corridor
+    {x: 300, y: h-180, w: 150, h: 15},      // upper tunnel
+    {x: 500, y: h-100, w: 200, h: 15},      // center corridor
+    {x: 750, y: h-160, w: 120, h: 15},      // right upper
+    {x: 900, y: h-80, w: 80, h: 15},        // right lower
+    {x: 650, y: h-220, w: 100, h: 15},      // high platform
+]
+
+// --- INPUT ---
+keys = {}
+window.onkeydown = e => keys[e.key] = true
+window.onkeyup = e => keys[e.key] = false
+
+// --- DRAW ---
+function drawPlayer(px, py, d) {
+    x.beginPath()
+    x.arc(px, py - 8, 4, 0, Math.PI*2)
+    x.moveTo(px, py - 4)
+    x.lineTo(px, py + 10)
+    x.lineTo(px - 6*d, py + 18)
+    x.moveTo(px, py + 10)
+    x.lineTo(px + 6*d, py + 18)
+    // gun tilt
+    x.moveTo(px, py + 2)
+    x.lineTo(px + 10*Math.cos(p.aimAngle), py + 4 + 10*Math.sin(p.aimAngle))
+    x.stroke()
+}
+
+function drawBullet(b) {
+    if(!b) return
+    x.fillRect(b.x-2, b.y-2, 4, 4)
+}
+
+function drawMap() {
+    x.fillStyle = "grey"
+    for(let obj of map) x.fillRect(obj.x, obj.y, obj.w, obj.h)
+}
+
+// --- COLLISION ---
+function collide(entity, nextX, nextY) {
+    // walls
+    if(nextX < 0 || nextX + entity.width > w || nextY < 0 || nextY + entity.height > h) return true
+    // map platforms
+    for(let obj of map) {
+        if(
+            nextX + entity.width > obj.x &&
+            nextX < obj.x + obj.w &&
+            nextY + entity.height > obj.y &&
+            nextY < obj.y + obj.h
+        ) return true
+    }
+    return false
+}
+
+// --- BULLETS ---
+function updateBullet(b, target) {
+    if(!b) return false
+    b.x += b.dx
+    b.y += b.dy
+    for(let obj of map) {
+        if(b.x > obj.x && b.x < obj.x + obj.w && b.y > obj.y && b.y < obj.y + obj.h) return null
+    }
+    if(Math.abs(b.x - target.x) < 10 && Math.abs(b.y - target.y) < 10) return true
+    if(b.x < 0 || b.x > w || b.y < 0 || b.y > h) return null
+    return false
+}
+
+// --- AI SHOOTING ---
+function aiShoot() {
+    if(!ai.bullet) {
+        let dx = p.x - ai.x
+        let dy = p.y - ai.y
+        let dist = Math.hypot(dx, dy)
+        let speed = 6
+        ai.bullet = { x: ai.x + 10*ai.d, y: ai.y + 4, dx: dx/dist*speed, dy: dy/dist*speed }
+    }
+}
+
+// --- RESET ---
+function resetPositions(winner) {
+    if(winner === 'Player') level++
+    else if(winner === 'AI') level = Math.max(1, level-1)
+
+    let platforms = map.filter(obj => obj.h < 50)
+    let pPlat = platforms[Math.floor(Math.random() * platforms.length)]
+    let aiPlat = platforms[Math.floor(Math.random() * platforms.length)]
+
+    p.x = pPlat.x + 20
+    p.y = pPlat.y - p.height
+    p.d = 1
+    p.bullet = null
+    p.aimAngle = 0
+
+    ai.x = aiPlat.x + 20
+    ai.y = aiPlat.y - ai.height
+    ai.d = -1
+    ai.bullet = null
+    ai.speed = 2 + level*0.5
+}
+
+// --- AIM UPDATE ---
+function updateAim() {
+    if(keys['w'] && keys['a']) p.aimAngle = -3*Math.PI/4
+    else if(keys['w'] && keys['d']) p.aimAngle = -Math.PI/4
+    else if(keys['s'] && keys['a']) p.aimAngle = 3*Math.PI/4
+    else if(keys['s'] && keys['d']) p.aimAngle = Math.PI/4
+    else if(keys['w']) p.aimAngle = -Math.PI/2
+    else if(keys['s']) p.aimAngle = Math.PI/2
+    else if(keys['a']) p.aimAngle = Math.PI
+    else if(keys['d']) p.aimAngle = 0
+}
+
+// --- UPDATE ---
+function update() {
+    updateAim()
+
+    // PLAYER MOVEMENT
+    let nextX = p.x + (keys['ArrowRight'] ? 4 : keys['ArrowLeft'] ? -4 : 0)
+    let nextY = p.y + (keys['ArrowUp'] ? -4 : keys['ArrowDown'] ? 4 : 0)
+    if(!collide(p, nextX, p.y)) p.x = nextX
+    if(!collide(p, p.x, nextY)) p.y = nextY
+
+    // AI MOVEMENT
+    let aiNextX = ai.x + (ai.x < p.x ? ai.speed : -ai.speed)
+    let aiNextY = ai.y + (ai.y < p.y ? 1 : -1)
+    if(!collide(ai, aiNextX, ai.y)) ai.x = aiNextX
+    if(!collide(ai, ai.x, aiNextY)) ai.y = aiNextY
+
+    // AI SHOOT
+    if(Math.random() < 0.01 * level) aiShoot()
+
+    // --- AUTOMATIC PLAYER SHOOT ---
+    if((keys['w'] || keys['a'] || keys['s'] || keys['d']) && !p.bullet && t % 15 === 0) {
+        let speed = 6
+        p.bullet = { x: p.x + 10*p.d, y: p.y + 4, dx: speed*Math.cos(p.aimAngle), dy: speed*Math.sin(p.aimAngle) }
+    }
+
+    // BULLETS HIT CHECK
+    if(p.bullet) {
+        let hit = updateBullet(p.bullet, ai)
+        if(hit === true) { alert("Player wins!"); resetPositions('Player'); return }
+        else if(hit === null) p.bullet = null
+    }
+    if(ai.bullet) {
+        let hit = updateBullet(ai.bullet, p)
+        if(hit === true) { alert("AI wins!"); resetPositions('AI'); return }
+        else if(hit === null) ai.bullet = null
+    }
+}
+
+// --- DRAW ---
+function draw() {
+    drawMap()
+    drawPlayer(p.x, p.y, p.d)
+    drawPlayer(ai.x, ai.y, ai.d)
+    drawBullet(p.bullet)
+    drawBullet(ai.bullet)
+
+    x.fillStyle = "black"
+    x.font = "20px Arial"
+    x.fillText("Level: " + level, 20, 30)
+}
+
+// --- LOOP ---
+function loop() {
+    x.clearRect(0, 0, w, h)
+    update()
+    draw()
+    t++
+    requestAnimationFrame(loop)
+}
+
+// --- START GAME ---
+resetPositions()
+loop()
+</script>
